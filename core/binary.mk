@@ -34,6 +34,7 @@ endif
 # Because the same LOCAL_ variables may be used to define modules for both 1st arch and 2nd arch,
 # we can't modify them in place.
 my_src_files := $(LOCAL_SRC_FILES)
+my_src_files_exclude := $(LOCAL_SRC_FILES_EXCLUDE)
 my_static_libraries := $(LOCAL_STATIC_LIBRARIES)
 my_whole_static_libraries := $(LOCAL_WHOLE_STATIC_LIBRARIES)
 my_shared_libraries := $(LOCAL_SHARED_LIBRARIES)
@@ -167,6 +168,7 @@ my_generated_sources += $(LOCAL_GENERATED_SOURCES_$($(my_prefix)OS))
 endif
 
 my_src_files += $(LOCAL_SRC_FILES_$($(my_prefix)$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)) $(LOCAL_SRC_FILES_$(my_32_64_bit_suffix))
+my_src_files_exclude += $(LOCAL_SRC_FILES_EXCLUDE_$($(my_prefix)$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)) $(LOCAL_SRC_FILES_EXCLUDE_$(my_32_64_bit_suffix))
 my_shared_libraries += $(LOCAL_SHARED_LIBRARIES_$($(my_prefix)$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)) $(LOCAL_SHARED_LIBRARIES_$(my_32_64_bit_suffix))
 my_cflags += $(LOCAL_CFLAGS_$($(my_prefix)$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)) $(LOCAL_CFLAGS_$(my_32_64_bit_suffix))
 my_cppflags += $(LOCAL_CPPFLAGS_$($(my_prefix)$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)) $(LOCAL_CPPFLAGS_$(my_32_64_bit_suffix))
@@ -174,6 +176,8 @@ my_ldflags += $(LOCAL_LDFLAGS_$($(my_prefix)$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)) $
 my_asflags += $(LOCAL_ASFLAGS_$($(my_prefix)$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)) $(LOCAL_ASFLAGS_$(my_32_64_bit_suffix))
 my_c_includes += $(LOCAL_C_INCLUDES_$($(my_prefix)$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)) $(LOCAL_C_INCLUDES_$(my_32_64_bit_suffix))
 my_generated_sources += $(LOCAL_GENERATED_SOURCES_$($(my_prefix)$(LOCAL_2ND_ARCH_VAR_PREFIX)ARCH)) $(LOCAL_GENERATED_SOURCES_$(my_32_64_bit_suffix))
+
+my_src_files := $(filter-out $(my_src_files_exclude),$(my_src_files))
 
 my_clang := $(strip $(LOCAL_CLANG))
 ifdef LOCAL_CLANG_$(my_32_64_bit_suffix)
@@ -199,6 +203,14 @@ else ifeq ($(USE_CLANG_PLATFORM_BUILD),true)
 endif
 
 my_cpp_std_version := -std=gnu++14
+
+ifneq ($(my_clang),true)
+    # GCC uses an invalid C++14 ABI (emits calls to
+    # __cxa_throw_bad_array_length, which is not a valid C++ RT ABI).
+    # http://b/25022512
+    my_cpp_std_version := -std=gnu++11
+endif
+
 ifdef LOCAL_SDK_VERSION
     # The NDK handles this itself.
     my_cpp_std_version :=
@@ -345,6 +357,14 @@ ifeq ($(NATIVE_COVERAGE),true)
 else
     my_native_coverage := false
 endif
+
+ifeq ($(my_clang),true)
+    my_coverage_lib := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_LIBPROFILE_RT)
+else
+    my_coverage_lib := $($(LOCAL_2ND_ARCH_VAR_PREFIX)TARGET_LIBGCOV)
+endif
+
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_TARGET_COVERAGE_LIB := $(my_coverage_lib)
 
 ###########################################################
 ## Define PRIVATE_ variables used by multiple module types
@@ -532,6 +552,7 @@ rs_generated_cpps := $(addprefix \
 # This is just a dummy rule to make sure gmake doesn't skip updating the dependents.
 $(rs_generated_cpps) : $(RenderScript_file_stamp)
 	@echo "Updated RS generated cpp file $@."
+	$(hide) touch $@
 
 my_c_includes += $(renderscript_intermediate)
 my_generated_sources += $(rs_generated_cpps)
@@ -594,6 +615,7 @@ $(proto_generated_sources): $(proto_generated_sources_dir)/%.pb$(my_proto_source
 # This is just a dummy rule to make sure gmake doesn't skip updating the dependents.
 $(proto_generated_headers): $(proto_generated_sources_dir)/%.pb.h: $(proto_generated_sources_dir)/%.pb$(my_proto_source_suffix)
 	@echo "Updated header file $@."
+	$(hide) touch $@
 
 $(my_prefix)_$(LOCAL_MODULE_CLASS)_$(LOCAL_MODULE)_proto_defined := true
 endif  # transform-proto-to-cc rule included only once
@@ -663,23 +685,57 @@ $(dbus_generated_headers) : $(dbus_service_config_path) $(DBUS_GENERATOR)
 ifdef LOCAL_DBUS_PROXY_PREFIX
 $(dbus_generated_headers) : $(dbus_definition_paths)
 	$(generate-dbus-proxies)
+else
+$(dbus_generated_headers) : $(dbus_header_dir)/%.h : $(LOCAL_PATH)/%.dbus-xml
+	$(generate-dbus-adaptors)
+endif  # $(LOCAL_DBUS_PROXY_PREFIX)
+endif  # $(my_prefix)_$(LOCAL_MODULE_CLASS)_$(LOCAL_MODULE)_dbus_bindings_defined
 
+ifdef LOCAL_DBUS_PROXY_PREFIX
 # Auto-export the generated dbus proxy directory.
 my_export_c_include_dirs += $(dbus_gen_dir)/include
 my_c_includes += $(dbus_gen_dir)/include
 else
-$(dbus_generated_headers) : $(dbus_header_dir)/%.h : $(LOCAL_PATH)/%.dbus-xml
-	$(generate-dbus-adaptors)
-
 my_export_c_include_dirs += $(dbus_header_dir)
 my_c_includes += $(dbus_header_dir)
 endif  # $(LOCAL_DBUS_PROXY_PREFIX)
-endif  # $(my_prefix)_$(LOCAL_MODULE_CLASS)_$(LOCAL_MODULE)_dbus_bindings_defined
 
 my_generated_sources += $(dbus_generated_headers)
 
 endif  # $(dbus_definitions) non-empty
 
+
+###########################################################
+## AIDL: Compile .aidl files to .cpp and .h files
+###########################################################
+aidl_src := $(strip $(filter %.aidl,$(my_src_files)))
+aidl_gen_cpp :=
+ifneq ($(aidl_src),)
+
+aidl_gen_cpp_root := $(intermediates)/aidl-generated/src
+aidl_gen_include_root := $(intermediates)/aidl-generated/include
+
+aidl_gen_cpp := $(patsubst %.aidl,%$(LOCAL_CPP_EXTENSION),$(aidl_src))
+aidl_gen_cpp := $(addprefix $(aidl_gen_cpp_root)/,$(aidl_gen_cpp))
+
+# TODO(wiley): we could pass down a flag here to only generate the server or
+#              client side of the binder interface.
+$(aidl_gen_cpp) : PRIVATE_MODULE := $(LOCAL_MODULE)
+$(aidl_gen_cpp) : PRIVATE_HEADER_OUTPUT_DIR := $(aidl_gen_include_root)
+$(aidl_gen_cpp) : PRIVATE_AIDL_FLAGS := $(addprefix -I,$(LOCAL_AIDL_INCLUDES))
+
+# Multi-architecture builds have distinct intermediates directories.
+# Define rules for both architectures.
+$(aidl_gen_cpp) : $(aidl_gen_cpp_root)/%$(LOCAL_CPP_EXTENSION) : $(LOCAL_PATH)/%.aidl $(AIDL_CPP)
+	$(transform-aidl-to-cpp)
+-include $(addsuffix .P,$(basename $(aidl_gen_cpp)))
+
+# Add generated headers to include path.
+my_c_includes += $(aidl_gen_include_root)
+# Pick up the generated C++ files later for transformation to .o files.
+my_generated_sources += $(aidl_gen_cpp)
+
+endif  # $(aidl_src) non-empty
 
 ###########################################################
 ## YACC: Compile .y and .yy files to .cpp and the to .o.
@@ -1119,6 +1175,7 @@ built_shared_libraries := \
     $(addprefix $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)OUT_INTERMEDIATE_LIBRARIES)/, \
       $(addsuffix $(so_suffix), \
         $(my_shared_libraries)))
+built_shared_library_tocs := $(addsuffix .toc, $(built_shared_libraries))
 
 # Add the NDK libraries to the built module dependency
 my_system_shared_libraries_fullpath := \
@@ -1132,6 +1189,8 @@ built_shared_libraries := \
     $(addprefix $($(LOCAL_2ND_ARCH_VAR_PREFIX)$(my_prefix)OUT_INTERMEDIATE_LIBRARIES)/, \
       $(addsuffix $(so_suffix), \
         $(installed_shared_library_module_names)))
+built_shared_library_tocs := $(addsuffix .toc, $(built_shared_libraries))
+my_system_shared_libraries_fullpath :=
 endif
 
 built_static_libraries := \
@@ -1226,7 +1285,8 @@ $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_ALL_OBJECTS := $(all_objects)
 ###########################################################
 # all_libraries is used for the dependencies on LOCAL_BUILT_MODULE.
 all_libraries := \
-    $(built_shared_libraries) \
+    $(built_shared_library_tocs) \
+    $(my_system_shared_libraries_fullpath) \
     $(built_static_libraries) \
     $(built_whole_libraries)
 

@@ -1,7 +1,8 @@
 ## Clang configurations.
 
-LLVM_PREBUILTS_VERSION := 3.6
-LLVM_PREBUILTS_PATH := prebuilts/clang/$(BUILD_OS)-x86/host/$(LLVM_PREBUILTS_VERSION)/bin
+LLVM_PREBUILTS_VERSION := 3.8
+LLVM_PREBUILTS_BASE := prebuilts/clang/host
+LLVM_PREBUILTS_PATH := $(LLVM_PREBUILTS_BASE)/$(BUILD_OS)-x86/$(LLVM_PREBUILTS_VERSION)/bin
 LLVM_RTLIB_PATH := $(LLVM_PREBUILTS_PATH)/../lib/clang/$(LLVM_PREBUILTS_VERSION)/lib/linux/
 
 CLANG := $(LLVM_PREBUILTS_PATH)/clang$(BUILD_EXECUTABLE_SUFFIX)
@@ -61,6 +62,8 @@ CLANG_CONFIG_UNKNOWN_CFLAGS := \
   -fno-tree-sra \
   -fprefetch-loop-arrays \
   -funswitch-loops \
+  -Werror=unused-but-set-parameter \
+  -Werror=unused-but-set-variable \
   -Wmaybe-uninitialized \
   -Wno-error=clobbered \
   -Wno-error=maybe-uninitialized \
@@ -76,7 +79,8 @@ CLANG_CONFIG_UNKNOWN_CFLAGS := \
   -Wno-unused-local-typedefs \
   -Wunused-but-set-parameter \
   -Wunused-but-set-variable \
-  -fdiagnostics-color
+  -fdiagnostics-color \
+  -fdebug-prefix-map=/proc/self/cwd=
 
 # Clang flags for all host rules
 CLANG_CONFIG_HOST_EXTRA_ASFLAGS :=

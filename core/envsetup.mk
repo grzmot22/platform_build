@@ -5,6 +5,11 @@
 # the bottom for the full list
 #     OUT_DIR is also set to "out" if it's not already set.
 #         this allows you to set it to somewhere else if you like
+#     SCAN_EXCLUDE_DIRS is an optional, whitespace separated list of
+#         directories that will also be excluded from full checkout tree
+#         searches for source or make files, in addition to OUT_DIR.
+#         This can be useful if you set OUT_DIR to be a different directory
+#         than other outputs of your build system.
 
 # Set up version information.
 include $(BUILD_SYSTEM)/version_defaults.mk
@@ -136,8 +141,8 @@ SDK_HOST_ARCH := x86
 board_config_mk := \
 	$(strip $(sort $(wildcard \
 		$(SRC_TARGET_DIR)/board/$(TARGET_DEVICE)/BoardConfig.mk \
-		$(shell test -d device && find device -maxdepth 4 -path '*/$(TARGET_DEVICE)/BoardConfig.mk') \
-		$(shell test -d vendor && find vendor -maxdepth 4 -path '*/$(TARGET_DEVICE)/BoardConfig.mk') \
+		$(shell test -d device && find -L device -maxdepth 4 -path '*/$(TARGET_DEVICE)/BoardConfig.mk') \
+		$(shell test -d vendor && find -L vendor -maxdepth 4 -path '*/$(TARGET_DEVICE)/BoardConfig.mk') \
 	)))
 ifeq ($(board_config_mk),)
   $(error No config file found for TARGET_DEVICE $(TARGET_DEVICE))

@@ -8,7 +8,9 @@ ifeq ($(TARGET_BUILD_PDK),true)
 ifeq ($(TARGET_BUILD_PDK_JAVA_PLATFORM),)
 # LOCAL_SDK not defined or set to current
 ifeq ($(filter-out current,$(LOCAL_SDK_VERSION)),)
+ifneq ($(LOCAL_NO_STANDARD_LIBRARIES),true)
 LOCAL_SDK_VERSION := $(PDK_BUILD_SDK_VERSION)
+endif #!LOCAL_NO_STANDARD_LIBRARIES
 endif
 endif # !PDK_JAVA
 endif #PDK
@@ -147,18 +149,28 @@ renderscript_sources_fullpath := $(addprefix $(LOCAL_PATH)/, $(renderscript_sour
 RenderScript_file_stamp := $(LOCAL_INTERMEDIATE_SOURCE_DIR)/RenderScript.stamp
 renderscript_intermediate.COMMON := $(LOCAL_INTERMEDIATE_SOURCE_DIR)/renderscript
 
+# Defaulting to an empty string uses the latest available platform SDK.
 renderscript_target_api :=
 
 ifneq (,$(LOCAL_RENDERSCRIPT_TARGET_API))
-renderscript_target_api := $(LOCAL_RENDERSCRIPT_TARGET_API)
+  renderscript_target_api := $(LOCAL_RENDERSCRIPT_TARGET_API)
 else
-ifneq (,$(LOCAL_SDK_VERSION))
-# Set target-api for LOCAL_SDK_VERSIONs other than current.
-ifneq (,$(filter-out current system_current, $(LOCAL_SDK_VERSION)))
-renderscript_target_api := $(LOCAL_SDK_VERSION)
-endif
-endif  # LOCAL_SDK_VERSION is set
+  ifneq (,$(LOCAL_SDK_VERSION))
+    # Set target-api for LOCAL_SDK_VERSIONs other than current.
+    ifneq (,$(filter-out current system_current, $(LOCAL_SDK_VERSION)))
+      renderscript_target_api := $(LOCAL_SDK_VERSION)
+    endif
+  endif  # LOCAL_SDK_VERSION is set
 endif  # LOCAL_RENDERSCRIPT_TARGET_API is set
+
+# For 64-bit, we always have to upgrade to at least 21 for compat build.
+ifneq ($(LOCAL_RENDERSCRIPT_COMPATIBILITY),)
+  ifeq ($(TARGET_IS_64_BIT),true)
+    ifneq ($(filter $(RSCOMPAT_32BIT_ONLY_API_LEVELS),$(renderscript_target_api)),)
+      renderscript_target_api := 21
+    endif
+  endif
+endif
 
 ifeq ($(LOCAL_RENDERSCRIPT_CC),)
 LOCAL_RENDERSCRIPT_CC := $(LLVM_RS_CC)
@@ -451,8 +463,29 @@ ifneq ($(filter-out full custom nosystem obfuscation optimization shrinktests,$(
     $(error invalid value for LOCAL_PROGUARD_ENABLED: $(LOCAL_PROGUARD_ENABLED))
 endif
 proguard_dictionary := $(intermediates.COMMON)/proguard_dictionary
+
+# Hack: see b/20667396
+# When an app's LOCAL_SDK_VERSION is lower than the support library's LOCAL_SDK_VERSION,
+# we artifically raises the "SDK version" "linked" by ProGuard, to
+# - suppress ProGuard warnings of referencing symbols unknown to the lower SDK version.
+# - prevent ProGuard stripping subclass in the support library that extends class added in the higher SDK version.
+my_support_library_sdk_raise :=
+ifneq (,$(filter android-support-%,$(LOCAL_STATIC_JAVA_LIBRARIES)))
+ifdef LOCAL_SDK_VERSION
+ifdef TARGET_BUILD_APPS
+ifeq (,$(filter current system_current, $(LOCAL_SDK_VERSION)))
+  my_support_library_sdk_raise := $(call java-lib-files, sdk_vcurrent)
+endif
+else
+  # For platform build, we can't just raise to the "current" SDK,
+  # that would break apps that use APIs removed from the current SDK.
+  my_support_library_sdk_raise := $(call java-lib-files,$(TARGET_DEFAULT_JAVA_LIBRARIES))
+endif
+endif
+endif
+
 # jack already has the libraries in its classpath and doesn't support jars
-legacy_proguard_flags := $(addprefix -libraryjars ,$(full_shared_java_libs))
+legacy_proguard_flags := $(addprefix -libraryjars ,$(my_support_library_sdk_raise) $(full_shared_java_libs))
 common_proguard_flags :=  \
                   -forceprocessing \
                   -printmapping $(proguard_dictionary)
@@ -520,7 +553,7 @@ extra_input_jar :=
 endif
 $(full_classes_proguard_jar): PRIVATE_EXTRA_INPUT_JAR := $(extra_input_jar)
 $(full_classes_proguard_jar): PRIVATE_PROGUARD_FLAGS := $(legacy_proguard_flags) $(common_proguard_flags) $(LOCAL_PROGUARD_FLAGS)
-$(full_classes_proguard_jar) : $(full_classes_jar) $(extra_input_jar) $(proguard_flag_files) | $(ACP) $(PROGUARD)
+$(full_classes_proguard_jar) : $(full_classes_jar) $(extra_input_jar) $(my_support_library_sdk_raise) $(proguard_flag_files) | $(ACP) $(PROGUARD)
 	$(call transform-jar-to-proguard)
 
 else  # LOCAL_PROGUARD_ENABLED not defined
@@ -611,11 +644,12 @@ $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_JACK_PROGUARD_FLAGS :=
 endif # LOCAL_PROGUARD_ENABLED defined
 
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_JACK_FLAGS := $(GLOBAL_JAVAC_DEBUG_FLAGS) $(LOCAL_JACK_FLAGS)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_JACK_VERSION := $(LOCAL_JACK_VERSION)
 
 jack_all_deps := $(java_sources) $(java_resource_sources) $(full_jack_lib_deps) \
         $(jar_manifest_file) $(layers_file) $(RenderScript_file_stamp) $(proguard_flag_files) \
         $(proto_java_sources_file_stamp) $(LOCAL_ADDITIONAL_DEPENDENCIES) $(LOCAL_JARJAR_RULES) \
-        $(LOCAL_MODULE_MAKEFILE_DEP) $(JACK_JAR) $(JACK_LAUNCHER_JAR)
+        $(LOCAL_MODULE_MAKEFILE_DEP) $(JACK)
 
 ifeq ($(LOCAL_IS_STATIC_JAVA_LIBRARY),true)
 $(full_classes_jack): $(jack_all_deps)

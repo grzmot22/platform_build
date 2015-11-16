@@ -80,7 +80,8 @@ dont_bother_goals := clean clobber dataclean installclean \
     vendorimage-nodeps \
     ramdisk-nodeps \
     bootimage-nodeps \
-    recoveryimage-nodeps
+    recoveryimage-nodeps \
+    product-graph dump-products
 
 ifneq ($(filter $(dont_bother_goals), $(MAKECMDGOALS)),)
 dont_bother := true
@@ -179,7 +180,7 @@ javac_version_str := $(shell unset _JAVA_OPTIONS && javac -version 2>&1)
 ifneq ($(EXPERIMENTAL_USE_JAVA8),)
 required_version := "1.8.x"
 required_javac_version := "1.8"
-java_version := $(shell echo '$(java_version_str)' | grep 'openjdk .*[ "]1\.8[\. "$$]')
+java_version := $(shell echo '$(java_version_str)' | grep '[ "]1\.8[\. "$$]')
 javac_version := $(shell echo '$(javac_version_str)' | grep '[ "]1\.8[\. "$$]')
 else # default
 required_version := "1.7.x"
@@ -312,6 +313,12 @@ TARGET_BUILD_JAVA_SUPPORT_LEVEL := platform
 # The pdk (Platform Development Kit) build
 include build/core/pdk_config.mk
 
+#
+# -----------------------------------------------------------------
+# Jack version configuration
+-include $(TOPDIR)prebuilts/sdk/tools/jack_versions.mk
+-include $(TOPDIR)prebuilts/sdk/tools/jack_for_module.mk
+
 # -----------------------------------------------------------------
 ###
 ### In this section we set up the things that are different
@@ -326,7 +333,7 @@ endif
 
 # Add build properties for ART. These define system properties used by installd
 # to pass flags to dex2oat.
-ADDITIONAL_BUILD_PROPERTIES += persist.sys.dalvik.vm.lib.2=libart
+ADDITIONAL_BUILD_PROPERTIES += persist.sys.dalvik.vm.lib.2=libart.so
 ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.isa.$(TARGET_ARCH).variant=$(DEX2OAT_TARGET_CPU_VARIANT)
 ifneq ($(DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES),)
   ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.isa.$(TARGET_ARCH).features=$(DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES)
@@ -419,7 +426,7 @@ ifdef is_sdk_build
 sdk_repo_goal := $(strip $(filter sdk_repo,$(MAKECMDGOALS)))
 MAKECMDGOALS := $(strip $(filter-out sdk_repo,$(MAKECMDGOALS)))
 
-ifneq ($(words $(filter-out $(INTERNAL_MODIFIER_TARGETS) checkbuild emulator_tests target-files-package,$(MAKECMDGOALS))),1)
+ifneq ($(words $(sort $(filter-out $(INTERNAL_MODIFIER_TARGETS) checkbuild emulator_tests target-files-package,$(MAKECMDGOALS)))),1)
 $(error The 'sdk' target may not be specified with any other targets)
 endif
 
@@ -498,6 +505,7 @@ NOTICE-TARGET-%: ;
 # A helper goal printing out install paths
 .PHONY: GET-INSTALL-PATH
 GET-INSTALL-PATH:
+	@echo "Install paths for modules in $(ONE_SHOT_MAKEFILE):"
 	@$(foreach m, $(ALL_MODULES), $(if $(ALL_MODULES.$(m).INSTALLED), \
 		echo 'INSTALL-PATH: $(m) $(ALL_MODULES.$(m).INSTALLED)';))
 
@@ -511,7 +519,7 @@ ifneq ($(dont_bother),true)
 # Can't use first-makefiles-under here because
 # --mindepth=2 makes the prunes not work.
 subdir_makefiles := \
-	$(shell build/tools/findleaves.py --prune=$(OUT_DIR) --prune=.repo --prune=.git $(subdirs) Android.mk)
+	$(shell build/tools/findleaves.py $(FIND_LEAVES_EXCLUDES) $(subdirs) Android.mk)
 
 $(foreach mk, $(subdir_makefiles), $(info including $(mk) ...)$(eval include $(mk)))
 
@@ -764,9 +772,14 @@ endif
 #$(error filtered out
 #           $(filter-out $(modules_to_install),$(old_modules_to_install)))
 
-# Don't include any GNU targets in the SDK.  It's ok (and necessary)
-# to build the host tools, but nothing that's going to be installed
-# on the target (including static libraries).
+# Don't include any GNU General Public License shared objects or static
+# libraries in SDK images.  GPL executables (not static/dynamic libraries)
+# are okay if they don't link against any closed source libraries (directly
+# or indirectly)
+
+# It's ok (and necessary) to build the host tools, but nothing that's
+# going to be installed on the target (including static libraries).
+
 ifdef is_sdk_build
   target_gnu_MODULES := \
               $(filter \
@@ -774,6 +787,7 @@ ifdef is_sdk_build
                       $(TARGET_OUT)/% \
                       $(TARGET_OUT_DATA)/%, \
                               $(sort $(call get-tagged-modules,gnu)))
+  target_gnu_MODULES := $(filter-out $(TARGET_OUT_EXECUTABLES)/%,$(target_gnu_MODULES))
   $(info Removing from sdk:)$(foreach d,$(target_gnu_MODULES),$(info : $(d)))
   modules_to_install := \
               $(filter-out $(target_gnu_MODULES),$(modules_to_install))
@@ -926,7 +940,9 @@ ifneq ($(TARGET_BUILD_APPS),)
   # For uninstallable modules such as static Java library, we have to dist the built file,
   # as <module_name>.<suffix>
   apps_only_dist_built_files := $(foreach m,$(unbundled_build_modules),$(if $(ALL_MODULES.$(m).INSTALLED),,\
-      $(if $(ALL_MODULES.$(m).BUILT),$(ALL_MODULES.$(m).BUILT):$(m)$(suffix $(ALL_MODULES.$(m).BUILT)))))
+      $(if $(ALL_MODULES.$(m).BUILT),$(ALL_MODULES.$(m).BUILT):$(m)$(suffix $(ALL_MODULES.$(m).BUILT)))\
+      $(if $(ALL_MODULES.$(m).AAR),$(ALL_MODULES.$(m).AAR):$(m).aar)\
+      ))
   $(call dist-for-goals,apps_only, $(apps_only_dist_built_files))
 
   ifeq ($(EMMA_INSTRUMENT),true)

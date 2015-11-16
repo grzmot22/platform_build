@@ -241,7 +241,7 @@ class Transfer(object):
 # original image.
 
 class BlockImageDiff(object):
-  def __init__(self, tgt, src=None, threads=None, version=3):
+  def __init__(self, tgt, src=None, threads=None, version=4):
     if threads is None:
       threads = multiprocessing.cpu_count() // 2
       if threads == 0:
@@ -252,7 +252,7 @@ class BlockImageDiff(object):
     self.src_basenames = {}
     self.src_numpatterns = {}
 
-    assert version in (1, 2, 3)
+    assert version in (1, 2, 3, 4)
 
     self.tgt = tgt
     if src is None:
@@ -338,8 +338,8 @@ class BlockImageDiff(object):
           sid = next_stash_id
           next_stash_id += 1
         stashes[s] = sid
-        stashed_blocks += sr.size()
         if self.version == 2:
+          stashed_blocks += sr.size()
           out.append("stash %d %s\n" % (sid, sr.to_string_raw()))
         else:
           sh = self.HashBlocks(self.src, sr)
@@ -347,15 +347,17 @@ class BlockImageDiff(object):
             stashes[sh] += 1
           else:
             stashes[sh] = 1
+            stashed_blocks += sr.size()
             out.append("stash %s %s\n" % (sh, sr.to_string_raw()))
 
       if stashed_blocks > max_stashed_blocks:
         max_stashed_blocks = stashed_blocks
 
       free_string = []
+      free_size = 0
 
       if self.version == 1:
-        src_str = xf.src_ranges.to_string_raw()
+        src_str = xf.src_ranges.to_string_raw() if xf.src_ranges else ""
       elif self.version >= 2:
 
         #   <# blocks> <src ranges>
@@ -371,7 +373,6 @@ class BlockImageDiff(object):
         mapped_stashes = []
         for s, sr in xf.use_stash:
           sid = stashes.pop(s)
-          stashed_blocks -= sr.size()
           unstashed_src_ranges = unstashed_src_ranges.subtract(sr)
           sh = self.HashBlocks(self.src, sr)
           sr = xf.src_ranges.map_within(sr)
@@ -384,11 +385,13 @@ class BlockImageDiff(object):
             # and lead to OTA failures.
             # Bug: 23119955
             free_string.append("free %d\n" % (sid,))
+            free_size += sr.size()
           else:
             assert sh in stashes
             src_str.append("%s:%s" % (sh, sr.to_string_raw()))
             stashes[sh] -= 1
             if stashes[sh] == 0:
+              free_size += sr.size()
               free_string.append("free %s\n" % (sh))
               stashes.pop(sh)
           heapq.heappush(free_stash_ids, sid)
@@ -492,6 +495,7 @@ class BlockImageDiff(object):
 
       if free_string:
         out.append("".join(free_string))
+        stashed_blocks -= free_size
 
       if self.version >= 2 and common.OPTIONS.cache_size is not None:
         # Sanity check: abort if we're going to need more stash space than

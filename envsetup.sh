@@ -21,7 +21,7 @@ Invoke ". build/envsetup.sh" from your shell to add the following functions to y
 - sgrep:     Greps on all local source files.
 - godir:     Go to the directory containing a file.
 
-Environemnt options:
+Environment options:
 - SANITIZE_HOST: Set to 'true' to use ASAN for all host modules. Note that
                  ASAN_OPTIONS=detect_leaks=0 will be set by default until the
                  build is leak-check clean.
@@ -754,7 +754,12 @@ function mmm()
                 case $DIR in
                   showcommands | snod | dist | *=*) ARGS="$ARGS $DIR";;
                   GET-INSTALL-PATH) GET_INSTALL_PATH=$DIR;;
-                  *) echo "No Android.mk in $DIR."; return 1;;
+                  *) if [ -d $DIR ]; then
+                         echo "No Android.mk in $DIR.";
+                     else
+                         echo "Couldn't locate the directory $DIR";
+                     fi
+                     return 1;;
                 esac
             fi
         done
@@ -915,7 +920,7 @@ function coredump_setup()
 	adb root;
 	adb wait-for-device;
 
-	echo "Remounting root parition read-write...";
+	echo "Remounting root partition read-write...";
 	adb shell mount -w -o remount -t rootfs rootfs;
 	sleep 1;
 	adb wait-for-device;
@@ -1056,14 +1061,16 @@ case `uname -s` in
     Darwin)
         function sgrep()
         {
-            find -E . -name .repo -prune -o -name .git -prune -o  -type f -iregex '.*\.(c|h|cc|cpp|S|java|xml|sh|mk|aidl)' -print0 | xargs -0 grep --color -n "$@"
+            find -E . -name .repo -prune -o -name .git -prune -o  -type f -iregex '.*\.(c|h|cc|cpp|S|java|xml|sh|mk|aidl)' \
+                -exec grep --color -n "$@" {} +
         }
 
         ;;
     *)
         function sgrep()
         {
-            find . -name .repo -prune -o -name .git -prune -o  -type f -iregex '.*\.\(c\|h\|cc\|cpp\|S\|java\|xml\|sh\|mk\|aidl\)' -print0 | xargs -0 grep --color -n "$@"
+            find . -name .repo -prune -o -name .git -prune -o  -type f -iregex '.*\.\(c\|h\|cc\|cpp\|S\|java\|xml\|sh\|mk\|aidl\)' \
+                -exec grep --color -n "$@" {} +
         }
         ;;
 esac
@@ -1075,56 +1082,73 @@ function gettargetarch
 
 function ggrep()
 {
-    find . -name .repo -prune -o -name .git -prune -o -name out -prune -o -type f -name "*\.gradle" -print0 | xargs -0 grep --color -n "$@"
+    find . -name .repo -prune -o -name .git -prune -o -name out -prune -o -type f -name "*\.gradle" \
+        -exec grep --color -n "$@" {} +
 }
 
 function jgrep()
 {
-    find . -name .repo -prune -o -name .git -prune -o -name out -prune -o -type f -name "*\.java" -print0 | xargs -0 grep --color -n "$@"
+    find . -name .repo -prune -o -name .git -prune -o -name out -prune -o -type f -name "*\.java" \
+        -exec grep --color -n "$@" {} +
 }
 
 function cgrep()
 {
-    find . -name .repo -prune -o -name .git -prune -o -name out -prune -o -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) -print0 | xargs -0 grep --color -n "$@"
+    find . -name .repo -prune -o -name .git -prune -o -name out -prune -o -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) \
+        -exec grep --color -n "$@" {} +
 }
 
 function resgrep()
 {
-    for dir in `find . -name .repo -prune -o -name .git -prune -o -name out -prune -o -name res -type d`; do find $dir -type f -name '*\.xml' -print0 | xargs -0 grep --color -n "$@"; done;
+    for dir in `find . -name .repo -prune -o -name .git -prune -o -name out -prune -o -name res -type d`; do
+        find $dir -type f -name '*\.xml' -exec grep --color -n "$@" {} +
+    done
 }
 
 function mangrep()
 {
-    find . -name .repo -prune -o -name .git -prune -o -path ./out -prune -o -type f -name 'AndroidManifest.xml' -print0 | xargs -0 grep --color -n "$@"
+    find . -name .repo -prune -o -name .git -prune -o -path ./out -prune -o -type f -name 'AndroidManifest.xml' \
+        -exec grep --color -n "$@" {} +
 }
 
 function sepgrep()
 {
-    find . -name .repo -prune -o -name .git -prune -o -path ./out -prune -o -name sepolicy -type d -print0 | xargs -0 grep --color -n -r --exclude-dir=\.git "$@"
+    find . -name .repo -prune -o -name .git -prune -o -path ./out -prune -o -name sepolicy -type d \
+        -exec grep --color -n -r --exclude-dir=\.git "$@" {} +
+}
+
+function rcgrep()
+{
+    find . -name .repo -prune -o -name .git -prune -o -name out -prune -o -type f -name "*\.rc*" \
+        -exec grep --color -n "$@" {} +
 }
 
 case `uname -s` in
     Darwin)
         function mgrep()
         {
-            find -E . -name .repo -prune -o -name .git -prune -o -path ./out -prune -o -type f -iregex '.*/(Makefile|Makefile\..*|.*\.make|.*\.mak|.*\.mk)' -print0 | xargs -0 grep --color -n "$@"
+            find -E . -name .repo -prune -o -name .git -prune -o -path ./out -prune -o -type f -iregex '.*/(Makefile|Makefile\..*|.*\.make|.*\.mak|.*\.mk)' \
+                -exec grep --color -n "$@" {} +
         }
 
         function treegrep()
         {
-            find -E . -name .repo -prune -o -name .git -prune -o -type f -iregex '.*\.(c|h|cpp|S|java|xml)' -print0 | xargs -0 grep --color -n -i "$@"
+            find -E . -name .repo -prune -o -name .git -prune -o -type f -iregex '.*\.(c|h|cpp|S|java|xml)' \
+                -exec grep --color -n -i "$@" {} +
         }
 
         ;;
     *)
         function mgrep()
         {
-            find . -name .repo -prune -o -name .git -prune -o -path ./out -prune -o -regextype posix-egrep -iregex '(.*\/Makefile|.*\/Makefile\..*|.*\.make|.*\.mak|.*\.mk)' -type f -print0 | xargs -0 grep --color -n "$@"
+            find . -name .repo -prune -o -name .git -prune -o -path ./out -prune -o -regextype posix-egrep -iregex '(.*\/Makefile|.*\/Makefile\..*|.*\.make|.*\.mak|.*\.mk)' -type f \
+                -exec grep --color -n "$@" {} +
         }
 
         function treegrep()
         {
-            find . -name .repo -prune -o -name .git -prune -o -regextype posix-egrep -iregex '.*\.(c|h|cpp|S|java|xml)' -type f -print0 | xargs -0 grep --color -n -i "$@"
+            find . -name .repo -prune -o -name .git -prune -o -regextype posix-egrep -iregex '.*\.(c|h|cpp|S|java|xml)' -type f \
+                -exec grep --color -n -i "$@" {} +
         }
 
         ;;
@@ -1345,14 +1369,20 @@ function godir () {
         return
     fi
     T=$(gettop)
-    if [[ ! -f $T/filelist ]]; then
+    if [ ! "$OUT_DIR" = "" ]; then
+        mkdir -p $OUT_DIR
+        FILELIST=$OUT_DIR/filelist
+    else
+        FILELIST=$T/filelist
+    fi
+    if [[ ! -f $FILELIST ]]; then
         echo -n "Creating index..."
-        (\cd $T; find . -wholename ./out -prune -o -wholename ./.repo -prune -o -type f > filelist)
+        (\cd $T; find . -wholename ./out -prune -o -wholename ./.repo -prune -o -type f > $FILELIST)
         echo " Done"
         echo ""
     fi
     local lines
-    lines=($(\grep "$1" $T/filelist | sed -e 's/\/[^/]*$//' | sort | uniq))
+    lines=($(\grep "$1" $FILELIST | sed -e 's/\/[^/]*$//' | sort | uniq))
     if [[ ${#lines[@]} = 0 ]]; then
         echo "Not found"
         return
@@ -1490,7 +1520,8 @@ function provision()
         echo ""
         echo "ALL DATA ON THE DEVICE WILL BE IRREVOCABLY ERASED."
         echo ""
-        read -p "Are you sure you want to do this (yes/no)? "
+        echo -n "Are you sure you want to do this (yes/no)? "
+        read
         if [[ "${REPLY}" != "yes" ]] ; then
             echo "Not taking any action. Exiting." >&2
             return 1
@@ -1511,7 +1542,8 @@ fi
 
 # Execute the contents of any vendorsetup.sh files we can find.
 for f in `test -d device && find -L device -maxdepth 4 -name 'vendorsetup.sh' 2> /dev/null | sort` \
-         `test -d vendor && find -L vendor -maxdepth 4 -name 'vendorsetup.sh' 2> /dev/null | sort`
+         `test -d vendor && find -L vendor -maxdepth 4 -name 'vendorsetup.sh' 2> /dev/null | sort` \
+         `test -d product && find -L product -maxdepth 4 -name 'vendorsetup.sh' 2> /dev/null | sort`
 do
     echo "including $f"
     . $f

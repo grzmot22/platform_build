@@ -36,9 +36,6 @@ PRODUCT_PACKAGES += \
     power.default
 
 PRODUCT_PACKAGES += \
-    local_time.default
-
-PRODUCT_PACKAGES += \
     BackupRestoreConfirmation \
     DefaultContainerService \
     SettingsProvider \
@@ -54,6 +51,7 @@ PRODUCT_PACKAGES += \
     ip-up-vpn \
     ip6tables \
     iptables \
+    gatekeeperd \
     keystore \
     keystore.default \
     ld.mc \
@@ -61,6 +59,7 @@ PRODUCT_PACKAGES += \
     libOpenSLES \
     libdownmix \
     libfilterfw \
+    libgatekeeper \
     libkeystore \
     libsqlite_jni \
     libwilhelm \
@@ -77,7 +76,6 @@ PRODUCT_PACKAGES += \
     telephony-common \
     voip-common \
     logd \
-    mms-common \
     wifi-service
 
 # The order matters
@@ -92,10 +90,9 @@ PRODUCT_BOOT_JARS := \
     telephony-common \
     voip-common \
     ims-common \
-    mms-common \
-    android.policy \
     apache-xml \
     nullwebview \
+    org.apache.http.legacy.boot
 
 # The order of PRODUCT_SYSTEM_SERVER_JARS matters.
 PRODUCT_SYSTEM_SERVER_JARS := \
@@ -113,6 +110,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 $(call inherit-product, $(SRC_TARGET_DIR)/product/runtime_libart.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/product/base.mk)
 $(call inherit-product-if-exists, frameworks/base/data/fonts/fonts.mk)
+$(call inherit-product-if-exists, external/roboto-fonts/fonts.mk)
 
 # Overrides
 PRODUCT_BRAND := tiny

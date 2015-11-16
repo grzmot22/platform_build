@@ -32,14 +32,21 @@ $(combo_var_prefix)GLOBAL_LD_DIRS += -Lprebuilts/gcc/linux-x86/host/x86_64-w64-m
 $(combo_var_prefix)GLOBAL_CFLAGS += -D__STDC_FORMAT_MACROS -D__STDC_CONSTANT_MACROS
 # Use C99-compliant printf functions (%zd).
 $(combo_var_prefix)GLOBAL_CFLAGS += -D__USE_MINGW_ANSI_STDIO=1
-# Admit to using >= Win2K.
-$(combo_var_prefix)GLOBAL_CFLAGS += -D_WIN32_WINNT=0x0500
+# Admit to using >= Win2K. Both are needed because of <_mingw.h>.
+$(combo_var_prefix)GLOBAL_CFLAGS += -D_WIN32_WINNT=0x0500 -DWINVER=0x0500
 # Get 64-bit off_t and related functions.
 $(combo_var_prefix)GLOBAL_CFLAGS += -D_FILE_OFFSET_BITS=64
 
 $(combo_var_prefix)CC := $(TOOLS_PREFIX)gcc
 $(combo_var_prefix)CXX := $(TOOLS_PREFIX)g++
 $(combo_var_prefix)AR := $(TOOLS_PREFIX)ar
+$(combo_var_prefix)NM := $(TOOLS_PREFIX)nm
+$(combo_var_prefix)OBJDUMP := $(TOOLS_PREFIX)objdump
+
+define $(combo_var_prefix)transform-shared-lib-to-toc
+$(hide) $($(PRIVATE_2ND_ARCH_VAR_PREFIX)$(PRIVATE_PREFIX)OBJDUMP) -x $(1) | grep "^Name" | cut -f3 -d" " > $(2)
+$(hide) $($(PRIVATE_2ND_ARCH_VAR_PREFIX)$(PRIVATE_PREFIX)NM) -g -f p $(1) | cut -f1-2 -d" " >> $(2)
+endef
 
 $(combo_var_prefix)GLOBAL_LDFLAGS += \
     --enable-stdcall-fixup
